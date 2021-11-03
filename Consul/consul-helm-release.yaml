@@ -1,0 +1,25 @@
+apiVersion: helm.fluxcd.io/v1
+kind: HelmRelease
+metadata:
+  name: consul
+  namespace: consul-demo
+spec:
+  releaseName: consul
+  chart:
+    repository: https://helm.releases.hashicorp.com
+    name: consul
+    version: 0.34.1
+  helmVersion: v3
+  values:
+    global:
+      name: consul
+    server:
+      replicas: 3
+      storage: 1Gi
+      resources:
+        requests:
+          memory: 256Mi
+          cpu: 200m
+        limits:
+          memory: 512Mi
+          cpu: 500m
