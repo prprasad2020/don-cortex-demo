@@ -1,0 +1,179 @@
+apiVersion: helm.fluxcd.io/v1
+kind: HelmRelease
+metadata:
+  name: cortex
+  namespace: cortex
+spec:
+  releaseName: cortex
+  chart:
+    repository: https://cortexproject.github.io/cortex-helm-chart
+    name: cortex
+    version: 0.6.0
+  helmVersion: v3
+  values:
+    tags:
+      blocks-storage-memcached: true
+    serviceAccount:
+      create: true
+      # Use the same service account name which is used in Terraform modules
+      name: cortex
+      annotations:
+        eks.amazonaws.com/role-arn: 'arn:aws:iam::XXXXXXXXXXXX:role/cortex-demo-s3-access'
+    config:
+      # Authentication enabled to configure Multi Tenancy Feature
+      auth_enabled: true
+      ingester:
+        lifecycler:
+          ring:
+            replication_factor: 1
+            # Provide the correct Consul DNS endpoint for Ingester ring
+            kvstore:
+              store: consul
+              prefix: 'collectors/'
+              consul:
+                host: 'consul-server.consul-demo.svc:8500'
+      limits:
+        ingestion_rate: 1000000
+        max_queriers_per_tenant: 2
+        ingestion_tenant_shard_size: 3
+      server:
+        grpc_server_min_time_between_pings: 10s
+        grpc_server_ping_without_stream_allowed: true
+      # Block storage is configured since S3 bucket is used
+      storage:
+        engine: blocks
+      blocks_storage:
+        s3:
+          bucket_name: cortex-demo-main-storage
+          endpoint: s3.us-east-1.amazonaws.com
+        tsdb:
+          dir: /data/cortex/tsdb
+        bucket_store:
+          sync_dir: /data/cortex/tsdb-sync
+          # Memcached is used for caching, correct DNS endpoints should be configured for each caching type
+          metadata_cache:
+            backend: memcached
+            memcached:
+              addresses: dns+cortex-memcached-blocks-metadata:11211
+              timeout: 1s
+          chunks_cache:
+            backend: memcached
+            memcached:
+              addresses: dns+cortex-memcached-blocks:11211
+              timeout: 1s             
+          index_cache:
+            backend: memcached
+            memcached:
+              addresses: dns+cortex-memcached-blocks-index:11211
+              timeout: 1s
+          bucket_index:
+            enabled: true
+      distributor:
+        sharding_strategy: shuffle-sharding
+      querier:
+        max_concurrent: 50
+      store_gateway:
+        sharding_enabled: true
+        sharding_ring:
+          # Provide the correct Consul DNS endpoint for Store Gateway ring
+          kvstore:
+            store: consul
+            prefix: 'collectors/'
+            consul:
+              host: 'consul-server.consul.svc:8500'
+              http_client_timeout: '20s'
+              consistent_reads: true
+      query_range:
+        results_cache:
+          cache:
+            enable_fifocache: true
+            default_validity: 6h
+            memcached_client:
+              service: cortex-memcached-blocks-metadata
+              addresses: dns+cortex-memcached-blocks-metadata:11211
+      ruler:
+        enable_api: true
+        rule_path: '/data/rules'
+      ruler_storage:
+        backend: local
+        local:
+          directory: '/data/rules'
+      alertmanager:
+        data_dir: '/data/cortex'
+        enable_api: true
+      alertmanager_storage:
+        backend: local
+        local:
+          path: '/data/configs'
+      frontend:
+        querier_forget_delay: 1m
+      compactor:
+        block_deletion_marks_migration_enabled: false
+    rbac:
+      create: true
+      pspEnabled: true
+    alertmanager:
+      enabled: true
+      extraVolumes:
+        - name: tmp-dir
+          emptyDir: {}
+      extraVolumeMounts:
+        - name: tmp-dir
+          mountPath: /tmp
+      # Alert manager sidecar is configured to reload AM configs on the go
+      sidecar:
+        enabled: true
+        label: cortex_am
+        labelValue: enable
+        folder: /data/configs
+        defaultFolderName: /alerts
+    distributor:
+      enabled: true
+    ingester:
+      enabled: true
+      # Ingesters are deployed as Statefulset with Persistent Volumes to keep the data if there are any Pod restarts
+      statefulSet:
+        enabled: true
+      persistentVolume:
+        enabled: true
+        size: 5Gi
+    ruler:
+      enabled: true
+      # Ruler sidecar is configured to reload rules files on the go
+      sidecar:
+        enabled: true
+        label: cortex_rule
+        labelValue: enable
+        folder: /data/rules
+        defaultFolderName: /cortex-demo
+    querier:
+      enabled: true
+    query_frontend:
+      enabled: true
+    table_manager:
+      enabled: false
+    configs:
+      enabled: false
+    nginx:
+      enabled: false
+    store_gateway:
+      enabled: true
+      # Store Gateway is deployed as Statefulset with Persistent Volumes to keep the data if there are any Pod restarts
+      persistentVolume:
+        enabled: true
+        size: 3Gi
+    compactor:
+      enabled: true
+      # Compactor is deployed as Statefulset with Persistent Volumes to keep the data if there are any Pod restarts
+      persistentVolume:
+        enabled: true
+        size: 5Gi
+    # Memcached is used for caching in Cortex components
+    memcached:
+      enabled: true
+    memcached-index-read:
+      enabled: true
+    memcached-index-write:
+      enabled: true
+    memcached-frontend:
+      enabled: true
