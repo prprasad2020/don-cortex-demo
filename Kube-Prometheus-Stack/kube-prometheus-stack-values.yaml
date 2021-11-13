@@ -63,6 +63,8 @@ grafana:
     size: 3Gi
     finalizers:
     - kubernetes.io/pvc-protection
+  env:
+    GF_FEATURE_TOGGLES_ENABLE: "ngalert"
   grafana.ini:
     server:
       root_url: http://grafana-demo.example.com
