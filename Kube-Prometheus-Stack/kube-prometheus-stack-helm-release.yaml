@@ -1,0 +1,101 @@
+apiVersion: helm.fluxcd.io/v1
+kind: HelmRelease
+metadata:
+  name: kube-prometheus-stack
+  namespace: monitoring
+spec:
+  releaseName: kube-prometheus-stack
+  chart:
+    repository: https://prometheus-community.github.io/helm-charts
+    name: kube-prometheus-stack
+    version: 19.0.0
+  helmVersion: v3
+  values:
+    alertmanager:
+      #Attaching external AM configuration using alertmanagerConfig CRD
+      alertmanagerSpec:
+        alertmanagerConfigSelector:
+          matchLabels:
+            alertmanagerConfig: "true"
+    prometheus:
+      # One ServiceMonitor CRD for scraping data from all Cortex components
+      additionalServiceMonitors:
+        - name: cortex-health-monitor
+          endpoints:
+          - path: /metrics
+            port: http-metrics
+          namespaceSelector:
+            matchNames:
+            - cortex
+          selector:
+            matchLabels:
+              app.kubernetes.io/name: cortex
+      # Adding an ingress resource for Prometheus GUI
+      ingress:
+        enabled: true
+        hosts:
+          - prometheus-demo.example.com
+        paths:
+          - /
+      prometheusSpec:
+        # Remote Write all the scrapped data to Cortex side with specific header parameter
+        remoteWrite:
+        - url: http://cortex-distributor.cortex.svc:8080/api/prom/push
+          headers:
+            X-Scope-OrgID: internal-prometheus
+        serviceMonitorSelector:
+          matchLabels:
+            release: kube-prometheus-stack
+        # Configure Persistent Volume for Prometheus storage
+        storageSpec:
+          volumeClaimTemplate:
+            spec:
+              storageClassName: gp2
+              accessModes:
+              - ReadWriteOnce
+              resources:
+                requests:
+                  storage: 5Gi
+        # Adding a common custom label for all the scrapped metrics
+        externalLabels:
+          clusterName: "Prometheus-Demo"
+    grafana:
+      # Adding an ingress resource for Grafana GUI
+      ingress:
+        enabled: true
+        hosts:
+          - grafana-demo.example.com
+        paths: /
+      # Configure Persistent Volume for Grafana storage
+      persistence:
+        enabled: true
+        type: statefulset
+        storageClassName: gp2
+        accessModes:
+        - ReadWriteOnce
+        size: 3Gi
+        finalizers:
+        - kubernetes.io/pvc-protection
+      grafana.ini:
+        server:
+          root_url: http://grafana-demo.example.com
+        # Configure SMTP settings for Grafana
+        smtp:
+          enabled: true
+          host: test-smtp-server:587
+          skip_verify: false
+          # Special feature in Grafana to refer password type of parameters from mounted volumes
+          user: $__file{/etc/secrets/grafana/smtp_user}
+          password: $__file{/etc/secrets/grafana/smtp_password}
+          from_address: alertmanager@gmail.com
+          from_name: Demo-Grafana
+      # Attaching extra secret as a volume mount
+      extraSecretMounts:
+        - name: grafana-secret
+          secretName: grafana-secret
+          mountPath: /etc/secrets/grafana
+          defaultMode: 0440
+          readOnly: true
+      # Install extra plugins
+      plugins:
+        - grafana-piechart-panel

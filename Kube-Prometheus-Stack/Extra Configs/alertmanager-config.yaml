@@ -1,0 +1,43 @@
+apiVersion: monitoring.coreos.com/v1alpha1
+kind: AlertmanagerConfig
+metadata:
+  name: extra-am-configs
+  namespace: monitoring
+  labels:
+    alertmanagerConfig: "true"
+spec:
+  # Extra AM configuration, this is useful when there are passwords as parameters
+  route:
+    groupBy: [alertname]
+    groupWait: 60s
+    groupInterval: 5m
+    repeatInterval: 24h
+    receiver: email
+    routes:
+    - matchers:
+      - name: severity
+        regex: true
+        value: critical|warning
+      receiver: email
+  receivers:
+  - name: email
+    emailConfigs:
+    - to: prometheus-alerts@gmail.com
+      sendResolved: true
+      from: alertmanager@gmail.com
+      smarthost: test-smtp-server:587
+      authUsername: test-username
+      authPassword:
+        name: smtp-pass
+        key: password
+      requireTLS: true
+---
+apiVersion: v1
+kind: Secret
+type: Opaque
+metadata:
+  name: smtp-pass
+  namespace: monitoring
+data:
+  # Test data in base64 encoded format
+  password: dGVzdC1wYXNzd29yZA==
